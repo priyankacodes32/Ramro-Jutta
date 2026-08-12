@@ -1,0 +1,10 @@
+# Documents
+*.docx
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
