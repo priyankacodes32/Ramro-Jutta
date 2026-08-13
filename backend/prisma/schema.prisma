@@ -12,6 +12,11 @@ datasource db {
   provider = "postgresql"
 }
 
+// ==================================================================================================================
+// ==================================================================================================================
+// ==================================================================================================================
+// ==================================================================================================================
+
 // ============================================================
 // IDENTITY DOMAIN
 // ============================================================
@@ -34,6 +39,8 @@ model User {
   addresses          Address[]
   vendorApplications VendorApplication[]
   vendorReviews      VendorReview[]      @relation("VendorReviewReviewer")
+
+  products Product[] @relation("VendorProducts")
 }
 
 // ------------------------------------------------------------
@@ -295,4 +302,663 @@ enum KycStatus {
 enum VendorReviewDecision {
   APPROVED
   REJECTED
+}
+
+// ==================================================================================================================
+// ==================================================================================================================
+// ==================================================================================================================
+// ==================================================================================================================
+
+// ============================================================
+// CATALOG DOMAIN
+// ============================================================
+
+// ------------------------------------------------------------
+// BRAND
+// ------------------------------------------------------------
+
+model Brand {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  slug        String  @unique
+  description String?
+  logoUrl     String?
+  websiteUrl  String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  products Product[]
+
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// CATEGORY
+// ------------------------------------------------------------
+//
+// Supports hierarchical categories.
+//
+// Example:
+//
+// Men
+// ├── Running
+// ├── Casual
+// └── Formal
+//
+// Women
+// ├── Running
+// └── Casual
+//
+// ------------------------------------------------------------
+
+model Category {
+  id          String  @id @default(uuid())
+  name        String
+  slug        String  @unique
+  description String?
+
+  // Self-referencing hierarchy
+  parentId String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryHierarchy")
+
+  products Product[]
+
+  @@index([parentId])
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// PRODUCT
+// ------------------------------------------------------------
+//
+// Represents the main shoe/listing.
+//
+// Example:
+//
+// Nike Air Max 270
+//
+// The actual purchasable combinations such as
+// Black / EU 42 are represented by ProductVariant.
+//
+// ------------------------------------------------------------
+
+model Product {
+  id String @id @default(uuid())
+
+  // Ownership
+  vendorId String
+
+  // Catalog relationships
+  brandId    String
+  categoryId String
+
+  name        String
+  slug        String  @unique
+  description String?
+
+  status ProductStatus @default(DRAFT)
+
+  // Base/display price.
+  // Variant-specific pricing can be introduced later
+  // if the business requires it.
+  basePrice Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+
+  // Vendor is a User who has the approved VENDOR role.
+  vendor User @relation("VendorProducts", fields: [vendorId], references: [id], onDelete: Restrict)
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  variants   ProductVariant[]
+  images     ProductImage[]
+  attributes ProductAttribute[]
+  tags       ProductTag[]
+
+  @@index([vendorId])
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([vendorId, status])
+}
+
+// ------------------------------------------------------------
+// SIZE
+// ------------------------------------------------------------
+//
+// Reusable shoe sizing system.
+//
+// Example:
+//
+// EU 40
+// EU 41
+// EU 42
+//
+// UK / US can also be represented.
+//
+// ------------------------------------------------------------
+
+model Size {
+  id   String @id @default(uuid())
+  name String
+
+  system SizeSystem
+
+  sortOrder Int @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  variants ProductVariant[]
+
+  @@unique([system, name])
+  @@index([system])
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// COLOR
+// ------------------------------------------------------------
+
+model Color {
+  id   String @id @default(uuid())
+  name String
+
+  // Hex/RGB representation for the customer application.
+  hexCode String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  variants ProductVariant[]
+
+  @@unique([name])
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// PRODUCT VARIANT
+// ------------------------------------------------------------
+//
+// Represents an actual purchasable configuration.
+//
+// Example:
+//
+// Product: Nike Air Max 270
+//
+// Variant:
+// Black + EU 42
+//
+// Each variant gets its own SKU.
+//
+// Inventory will be handled by the future Inventory domain.
+//
+// ------------------------------------------------------------
+
+model ProductVariant {
+  id        String @id @default(uuid())
+  productId String
+
+  sizeId  String
+  colorId String
+
+  // Stock keeping unit.
+  sku String @unique
+
+  // Allows a variant to have a different selling price.
+  price Decimal @db.Decimal(12, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  size Size @relation(fields: [sizeId], references: [id], onDelete: Restrict)
+
+  color Color @relation(fields: [colorId], references: [id], onDelete: Restrict)
+
+  images         VariantImage[]
+  inventoryItems InventoryItem[]
+
+  @@unique([productId, sizeId, colorId])
+  @@index([productId])
+  @@index([sizeId])
+  @@index([colorId])
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// PRODUCT IMAGE
+// ------------------------------------------------------------
+//
+// Images belonging to the overall product.
+//
+// Example:
+//
+// front.jpg
+// side.jpg
+// back.jpg
+//
+// ------------------------------------------------------------
+
+model ProductImage {
+  id        String @id @default(uuid())
+  productId String
+
+  imageUrl String
+
+  altText String?
+
+  sortOrder Int @default(0)
+
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([productId, sortOrder])
+}
+
+// ------------------------------------------------------------
+// VARIANT IMAGE
+// ------------------------------------------------------------
+//
+// Images specifically associated with a variant/color.
+//
+// Example:
+//
+// Black variant
+// ├── black-front.jpg
+// └── black-side.jpg
+//
+// ------------------------------------------------------------
+
+model VariantImage {
+  id        String @id @default(uuid())
+  variantId String
+
+  imageUrl String
+
+  altText String?
+
+  sortOrder Int @default(0)
+
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId])
+  @@index([variantId, sortOrder])
+}
+
+// ------------------------------------------------------------
+// PRODUCT ATTRIBUTE
+// ------------------------------------------------------------
+//
+// Flexible product specifications.
+//
+// Examples:
+//
+// Material       → Mesh
+// Sole Material  → Rubber
+// Closure        → Lace-up
+// Occasion       → Running
+//
+// ------------------------------------------------------------
+
+model ProductAttribute {
+  id        String @id @default(uuid())
+  productId String
+
+  name  String
+  value String
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([productId, name])
+}
+
+// ------------------------------------------------------------
+// TAG
+// ------------------------------------------------------------
+//
+// Examples:
+//
+// running
+// sports
+// new-arrival
+// best-seller
+// formal
+//
+// ------------------------------------------------------------
+
+model Tag {
+  id   String @id @default(uuid())
+  name String @unique
+  slug String @unique
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  products ProductTag[]
+
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// PRODUCT TAG
+// ------------------------------------------------------------
+//
+// Many-to-many:
+//
+// Product ↔ Tag
+//
+// ------------------------------------------------------------
+
+model ProductTag {
+  id        String @id @default(uuid())
+  productId String
+  tagId     String
+
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  tag Tag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, tagId])
+  @@index([productId])
+  @@index([tagId])
+}
+
+// ============================================================
+// CATALOG ENUMS
+// ============================================================
+
+// ------------------------------------------------------------
+// PRODUCT STATUS
+// ------------------------------------------------------------
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+// ------------------------------------------------------------
+// SIZE SYSTEM
+// ------------------------------------------------------------
+
+enum SizeSystem {
+  EU
+  UK
+  US
+}
+
+// ==================================================================================================================
+// ==================================================================================================================
+// ==================================================================================================================
+// ==================================================================================================================
+
+// ============================================================
+// INVENTORY DOMAIN
+// ============================================================
+
+// ------------------------------------------------------------
+// INVENTORY LOCATION
+// ------------------------------------------------------------
+//
+// Represents a physical or logical location where stock is held.
+//
+// Examples:
+// - Main Warehouse
+// - Kathmandu Warehouse
+// - Pokhara Warehouse
+// - Vendor Warehouse
+//
+// We are keeping this separate now so the system can support
+// multiple fulfillment locations in the future.
+// ------------------------------------------------------------
+
+model InventoryLocation {
+  id String @id @default(uuid())
+
+  name        String
+  code        String  @unique
+  description String?
+
+  address  String?
+  city     String?
+  district String?
+  province String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  inventoryItems InventoryItem[]
+
+  @@index([isActive])
+}
+
+// ------------------------------------------------------------
+// INVENTORY ITEM
+// ------------------------------------------------------------
+//
+// Represents the stock of ONE ProductVariant at ONE location.
+//
+// Example:
+//
+// ProductVariant = Nike Air Max / Black / Size 42
+// Location       = Kathmandu Warehouse
+// Quantity       = 20
+// Reserved       = 3
+//
+// Available stock = quantity - reservedQuantity
+//
+// availableQuantity should be calculated in application logic.
+// It should NOT be stored separately because it can become
+// inconsistent with quantity/reservedQuantity.
+// ------------------------------------------------------------
+
+model InventoryItem {
+  id String @id @default(uuid())
+
+  productVariantId String
+  locationId       String
+
+  quantity         Int @default(0)
+  reservedQuantity Int @default(0)
+
+  lowStockThreshold Int @default(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+
+  location InventoryLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  movements    InventoryMovement[]
+  reservations InventoryReservation[]
+
+  // One inventory record per variant per location.
+  @@unique([productVariantId, locationId])
+  @@index([productVariantId])
+  @@index([locationId])
+}
+
+// ------------------------------------------------------------
+// INVENTORY MOVEMENT
+// ------------------------------------------------------------
+//
+// Immutable audit trail of stock changes.
+//
+// Examples:
+//
+// +50 STOCK_IN
+// -2  STOCK_OUT
+// +3  RETURN
+// -1  DAMAGE
+// +5  ADJUSTMENT
+//
+// We do NOT rely only on the current InventoryItem.quantity.
+// This table allows us to understand how stock changed over time.
+// ------------------------------------------------------------
+
+model InventoryMovement {
+  id String @id @default(uuid())
+
+  inventoryItemId String
+
+  type     InventoryMovementType
+  quantity Int
+
+  reason String?
+
+  // Optional reference to the business event that caused
+  // the movement.
+  //
+  // Examples:
+  // referenceType = "ORDER"
+  // referenceId   = order UUID
+  //
+  // referenceType = "PURCHASE"
+  // referenceId   = purchase UUID
+  //
+  // referenceType = "RETURN"
+  // referenceId   = return UUID
+  //
+  referenceType String?
+  referenceId   String?
+
+  // User who performed/manualy triggered the movement.
+  // This can be an admin/vendor depending on the operation.
+  createdBy String?
+
+  createdAt DateTime @default(now())
+
+  // Relationships
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryItemId])
+  @@index([type])
+  @@index([referenceType, referenceId])
+  @@index([createdAt])
+}
+
+// ------------------------------------------------------------
+// INVENTORY RESERVATION
+// ------------------------------------------------------------
+//
+// Temporarily reserves stock for an order.
+//
+// Example:
+//
+// Available stock = 10
+// Customer orders 3
+//
+// quantity       = 10
+// reserved       = 3
+// available      = 7
+//
+// Once payment/order is successfully completed,
+// the reservation becomes CONSUMED.
+//
+// If the order expires/cancels,
+// the reservation becomes RELEASED or EXPIRED.
+// ------------------------------------------------------------
+
+model InventoryReservation {
+  id String @id @default(uuid())
+
+  inventoryItemId String
+
+  orderId  String
+  quantity Int
+
+  status InventoryReservationStatus @default(ACTIVE)
+
+  expiresAt DateTime?
+
+  createdAt  DateTime  @default(now())
+  releasedAt DateTime?
+
+  // Relationships
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  // Prevents duplicate active reservation records for the
+  // same order + inventory item.
+  @@unique([inventoryItemId, orderId])
+  @@index([inventoryItemId])
+  @@index([orderId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// INVENTORY ENUMS
+// ============================================================
+
+enum InventoryMovementType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  RETURN
+  DAMAGE
+  RESERVED
+  RELEASED
+}
+
+enum InventoryReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+  EXPIRED
 }
