@@ -1,0 +1,298 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// IDENTITY DOMAIN
+// ============================================================
+
+// ------------------------------------------------------------
+// USER
+// ------------------------------------------------------------
+
+model User {
+  id            String  @id @default(uuid())
+  phone         String  @unique
+  phoneVerified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  roles              UserRole[]
+  authOtps           AuthOtp[]
+  addresses          Address[]
+  vendorApplications VendorApplication[]
+  vendorReviews      VendorReview[]      @relation("VendorReviewReviewer")
+}
+
+// ------------------------------------------------------------
+// ROLE
+// ------------------------------------------------------------
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  users UserRole[]
+}
+
+// ------------------------------------------------------------
+// USER ROLE
+// ------------------------------------------------------------
+//
+// Many-to-many relationship between User and Role.
+//
+// Example:
+//
+// User A → USER
+// User A → VENDOR
+// User B → USER
+// User C → USER
+// User C → ADMIN
+//
+// ------------------------------------------------------------
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String
+  roleId String
+
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+// ------------------------------------------------------------
+// AUTH OTP
+// ------------------------------------------------------------
+
+model AuthOtp {
+  id String @id @default(uuid())
+
+  userId String?
+  phone  String
+
+  codeHash String
+
+  purpose OtpPurpose
+
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([phone])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ------------------------------------------------------------
+// ADDRESS
+// ------------------------------------------------------------
+
+model Address {
+  id     String @id @default(uuid())
+  userId String
+
+  label String?
+
+  fullName String
+  phone    String
+
+  province     String
+  district     String
+  municipality String
+  ward         String
+  street       String?
+  landmark     String?
+  postalCode   String?
+
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ------------------------------------------------------------
+// VENDOR APPLICATION
+// ------------------------------------------------------------
+
+model VendorApplication {
+  id     String @id @default(uuid())
+  userId String
+
+  status VendorApplicationStatus @default(DRAFT)
+
+  submittedAt DateTime?
+
+  reviewedAt DateTime?
+  reviewedBy String?
+
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  documents VendorDocument[]
+  kyc       VendorKyc?
+  reviews   VendorReview[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ------------------------------------------------------------
+// VENDOR DOCUMENT
+// ------------------------------------------------------------
+
+model VendorDocument {
+  id            String @id @default(uuid())
+  applicationId String
+
+  documentType DocumentType
+
+  documentUrl String
+
+  status DocumentVerificationStatus @default(PENDING)
+
+  submittedAt DateTime  @default(now())
+  verifiedAt  DateTime?
+
+  verifiedBy String?
+
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  application VendorApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([status])
+}
+
+// ------------------------------------------------------------
+// VENDOR KYC
+// ------------------------------------------------------------
+
+model VendorKyc {
+  id            String @id @default(uuid())
+  applicationId String @unique
+
+  status KycStatus @default(PENDING)
+
+  verifiedAt DateTime?
+  verifiedBy String?
+
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  application VendorApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+// ------------------------------------------------------------
+// VENDOR REVIEW
+// ------------------------------------------------------------
+//
+// Keeps an audit history of administrative decisions.
+//
+// ------------------------------------------------------------
+
+model VendorReview {
+  id            String @id @default(uuid())
+  applicationId String
+  reviewerId    String
+
+  decision VendorReviewDecision
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  application VendorApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  reviewer User @relation("VendorReviewReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId])
+  @@index([reviewerId])
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum OtpPurpose {
+  LOGIN
+  SIGNUP
+  PHONE_VERIFICATION
+  CHANGE_PHONE
+}
+
+enum VendorApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  KYC_PENDING
+  KYC_VERIFIED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum DocumentType {
+  CITIZENSHIP
+  BUSINESS_REGISTRATION
+  PAN
+  BUSINESS_LICENSE
+  BANK_DOCUMENT
+  ADDRESS_PROOF
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum VendorReviewDecision {
+  APPROVED
+  REJECTED
+}
